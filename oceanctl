@@ -1,0 +1,106 @@
+#! /bin/bash
+
+# Source the CLIENT_ID and API_KEY variables from the config file.
+source ~/.config/oceanctl
+API_URL=https://api.digitalocean.com
+
+function usage {
+	echo "Digital Ocean Droplet Control
+
+Usage: oceanctl <action> <options>
+
+Actions:
+- list				List droplets
+- show <droplet name>		Show details of a specific droplet
+- op
+- reboot <droplet name>		Reboot a droplet
+- new
+- regions			List regions to host droplets in
+- images <mine/global>		List available droplet images/snapshots
+"
+}
+
+function nameToId {
+	droplet_ids=$(curl -s "$API_URL/droplets/?client_id=$CLIENT_ID&api_key=$API_KEY" | tr ',' '\n' | tr '}' '\n' | tr '{' '\n' | grep \"id)
+        droplet_names=$(curl -s "$API_URL/droplets/?client_id=$CLIENT_ID&api_key=$API_KEY" | tr ',' '\n' | tr '}' '\n' | tr '{' '\n' | grep \"name)
+        id_line=$(echo "$droplet_names" | grep -n $1 | cut -d':' -f1)
+        droplet_id=$(echo "$droplet_ids" | sed -n "$id_line"p | cut -d':' -f2)
+}
+
+function imageIdToImageName {
+	droplet_image=$(curl -s "$API_URL/images/?client_id=$CLIENT_ID&api_key=$API_KEY" | tr '{' '\n' | grep $1 | cut -d'"' -f6)
+}
+
+case $1 in
+
+list)
+	dropList=$(curl -s "$API_URL/droplets/?client_id=$CLIENT_ID&api_key=$API_KEY" | tr ',' '\n' | tr '}' '\n')
+	#echo "$dropList"
+	dropNames=($(echo "$dropList" | grep name | cut -d'"' -f4))
+	dropIPs=($(echo "$dropList" | grep \"ip_address | cut -d'"' -f4))
+	dropStatuses=($(echo "$dropList" | grep -v OK | grep \"status | cut -d'"' -f4))
+	numDrops=($(echo "$dropNames" | wc -l))
+	for (( i=0;i<=$numDrops;i++ ))
+	do
+	  echo "Name:   "${dropNames[$i]}
+	  echo "IP:     "${dropIPs[$i]}
+	  echo "Status: "${dropStatuses[$i]}
+	  echo
+	done
+	;;
+rawlist)
+	curl -s "$API_URL/droplets/?client_id=$CLIENT_ID&api_key=$API_KEY" | tr ',' '\n' | tr '}' '\n'
+	;;
+show)
+	nameToId $2
+	dropShow=$(curl -s "$API_URL/droplets/$droplet_id/?client_id=$CLIENT_ID&api_key=$API_KEY" | tr ',' '\n' | tr '}' '\n')
+	echo "Name:	"$2
+	imageIdToImageName $(echo "$dropShow" | grep image_id | cut -d: -f2 | cut -d' ' -f2 | cut -d, -f1)
+	echo "Image:	"$droplet_image
+	echo "IP:	"$(echo "$dropShow" | grep \"ip_address | cut -d'"' -f4)
+	echo "Status:	"$(echo "$dropShow" | grep status | tail -n1 | cut -d'"' -f4)
+	echo "Snapshots:"
+	echo -e "\t$(echo $dropShow | grep -o \"snapshots.* | tr '{' '\n' | cut -d '"' -f6 | sed '1d')"
+	;;
+rawshow)
+	nameToId $2
+        curl -s "$API_URL/droplets/$droplet_id/?client_id=$CLIENT_ID&api_key=$API_KEY" #| tr ',' '\n' | tr '}' '\n'
+	;;
+op)
+	nameToId $2
+	#case $2 in
+	;;
+reboot)
+	echo -n "Are you sure you want to reboot "$2"? (y/n):"
+	read yn
+
+	if [ "$yn" == 'y' ];then
+		nameToId $2
+		dropShow=$(curl -s "$API_URL/droplets/$droplet_id/reboot/?client_id=$CLIENT_ID&api_key=$API_KEY" | tr ',' '\n' | tr '}' '\n')
+	else
+		echo "Not rebooting."
+	fi
+	;;
+new)
+	;;
+regions)
+	curl -s "$API_URL/regions/?client_id=$CLIENT_ID&api_key=$API_KEY" | tr ',' '\n' | tr '}' '\n' | grep name | cut -d'"' -f4
+	;;
+images)
+	case $2 in
+	mine)
+		filter="my_images"
+		;;
+	all)
+		filter="global"
+		;;
+	esac
+	curl -s "$API_URL/images/?client_id=$CLIENT_ID&api_key=$API_KEY&filter=$filter" | tr '{' '\n' | sed '1,2d' | cut -d'"' -f6
+	;;
+rawimages)
+	curl -s "$API_URL/images/?client_id=$CLIENT_ID&api_key=$API_KEY" | tr '{' '\n'
+	;;
+*)
+	usage
+	;;
+esac
